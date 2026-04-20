@@ -5,7 +5,7 @@ const LandingHero = ({ buttonClass, featureCards }) => {
         Strategy to draft to visual
       </p>
       <h1 className="max-w-3xl font-display text-5xl leading-[0.95] text-ink sm:text-6xl lg:text-7xl">
-        Build sharper LinkedIn content with an AI workflow that still feels like yours.
+        Building Content Generation Pipeline
       </h1>
       <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300/88 sm:text-lg">
         ContentC combines template-aware drafting, guided refinement, and AI image

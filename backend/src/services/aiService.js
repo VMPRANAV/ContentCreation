@@ -12,6 +12,23 @@ const hf = new InferenceClient(env.hfApiKey);
 const getPostTemplatesCollection = () => getDb().collection("post_templates");
 const getImageHistoryCollection = () => getDb().collection("image_history");
 
+const WRITER_AGENT_PERSONA =
+  "You are the Writer Agent for ContentC, an elite LinkedIn ghostwriter who turns briefs into high-performing posts. You write with a sharp hook, clear progression, professional warmth, and a CTA that matches the brief.";
+
+const VISUAL_ARTIST_AGENT_PERSONA =
+  "You are the Visual Artist Agent for ContentC. You turn a finished LinkedIn post into one premium image-generation prompt with a clear subject, composition, mood, lighting, and style direction. Output one prompt string only.";
+
+const CRITIC_AGENT_PERSONA =
+  "You are the Critic Agent for ContentC. You evaluate LinkedIn posts for hook strength, readability, and virality potential. You must return strict JSON only.";
+
+const createProviderError = (provider, message, status = 500, extras = {}) => {
+  const error = new Error(message);
+  error.provider = provider;
+  error.status = status;
+  Object.assign(error, extras);
+  return error;
+};
+
 const buildContextBlock = (templates) => {
   if (!templates.length) {
     return "No matching templates were found. Use strong LinkedIn structure best practices.";
@@ -34,6 +51,15 @@ const normalizeBrief = (briefInput) => ({
   goal: briefInput?.goal?.trim() || "",
   cta: briefInput?.cta?.trim() || ""
 });
+
+const normalizeMongoId = (doc) => {
+  if (!doc) {
+    return doc;
+  }
+
+  const id = doc._id instanceof ObjectId ? doc._id.toString() : String(doc._id || "");
+  return { ...doc, _id: id };
+};
 
 const buildBriefQuery = (briefInput) => {
   const brief = normalizeBrief(briefInput);
@@ -93,14 +119,102 @@ const normalizeGeminiError = (error, fallbackMessage) => {
   }
 };
 
+const normalizeGroqError = (error, fallbackMessage) => {
+  const status =
+    error?.status || error?.statusCode || error?.response?.status || error?.cause?.status;
+
+  return createProviderError("groq", error?.message || fallbackMessage, status || 500);
+};
+
+const getGroqText = (completion) =>
+  completion.choices?.[0]?.message?.content?.trim() || "";
+
+const extractJsonObject = (content) => {
+  if (typeof content !== "string") {
+    return null;
+  }
+
+  const trimmed = content.trim();
+  const fencedMatch = trimmed.match(/```json\s*([\s\S]*?)```/i);
+  const candidate = fencedMatch?.[1]?.trim() || trimmed;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
+
+  return candidate.slice(start, end + 1);
+};
+
+const coerceScore = (value, fallback) => {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  return Math.min(10, Math.max(1, Math.round(numeric)));
+};
+
+const coerceSuggestionList = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item) => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+};
+
+const buildAnalysisFallback = (postContent, rawOutput = "") => {
+  const trimmed = postContent?.trim() || "";
+  const lines = trimmed ? trimmed.split("\n").filter((line) => line.trim()) : [];
+  const words = trimmed ? trimmed.split(/\s+/).length : 0;
+  const hasQuestion = trimmed.includes("?");
+  const hook = trimmed.split("\n")[0] || "";
+
+  return {
+    hookScore: hook.length >= 40 || hasQuestion ? 7 : 6,
+    readabilityScore: words > 220 ? 6 : 7,
+    viralityScore: lines.length >= 4 ? 7 : 6,
+    suggestions: [
+      "Sharpen the opening line so the value lands in the first sentence.",
+      "Add one more concrete takeaway or invitation to respond."
+    ],
+    fallbackUsed: true,
+    rawOutput: rawOutput?.trim() || ""
+  };
+};
+
+const normalizeAnalysisPayload = (payload, fallbackPayload) => ({
+  hookScore: coerceScore(payload?.hookScore, fallbackPayload.hookScore),
+  readabilityScore: coerceScore(payload?.readabilityScore, fallbackPayload.readabilityScore),
+  viralityScore: coerceScore(payload?.viralityScore, fallbackPayload.viralityScore),
+  suggestions:
+    coerceSuggestionList(payload?.suggestions).length > 0
+      ? coerceSuggestionList(payload?.suggestions)
+      : fallbackPayload.suggestions,
+  fallbackUsed: Boolean(payload?.fallbackUsed),
+  rawOutput: typeof payload?.rawOutput === "string" ? payload.rawOutput : fallbackPayload.rawOutput
+});
+
 const embedText = async (input) => {
-  const response = await gemini.models.embedContent({
-    model: env.geminiEmbeddingModel,
-    contents: input,
-    config: {
-      taskType: "RETRIEVAL_QUERY"
-    }
-  });
+  let response;
+
+  try {
+    response = await gemini.models.embedContent({
+      model: env.geminiEmbeddingModel,
+      contents: input,
+      config: {
+        taskType: "RETRIEVAL_QUERY"
+      }
+    });
+  } catch (error) {
+    throw normalizeGeminiError(error, "Gemini embedding request failed.") || error;
+  }
 
   const vector = response?.embeddings?.[0]?.values;
   if (!vector) {
@@ -137,7 +251,7 @@ const searchTemplatesByTopic = async (topic, limit = 4) => {
     ])
     .toArray();
 
-  return templates;
+  return templates.map(normalizeMongoId);
 };
 
 export const generateTextWithRAG = async (briefInput) => {
@@ -154,28 +268,33 @@ export const generateTextWithRAG = async (briefInput) => {
   const context = buildContextBlock(templates);
   const briefInstructions = buildBriefInstructionBlock(brief);
 
-  const completion = await groq.chat.completions.create({
-    model: env.groqModel,
-    temperature: 0.7,
-    max_tokens: 900,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a senior LinkedIn ghostwriter. Generate high-performing, professional posts with a strong hook, clear structure, and CTA."
-      },
-      {
-        role: "user",
-        content:
-          `Use this content brief to shape the draft:\n${briefInstructions}\n\n` +
-          `Reference template context:\n${context}\n\n` +
-          `Generate one polished LinkedIn post in plain text. Keep it authentic, concise, outcome-focused, and aligned to the audience and goal. ` +
-          `Make the closing CTA consistent with the brief.`
-      }
-    ]
-  });
+  let completion;
 
-  const post = completion.choices?.[0]?.message?.content?.trim() || "";
+  try {
+    completion = await groq.chat.completions.create({
+      model: env.groqModel,
+      temperature: 0.7,
+      max_tokens: 900,
+      messages: [
+        {
+          role: "system",
+          content: WRITER_AGENT_PERSONA
+        },
+        {
+          role: "user",
+          content:
+            `Use this content brief to shape the draft:\n${briefInstructions}\n\n` +
+            `Reference template context:\n${context}\n\n` +
+            "Write one polished LinkedIn post in plain text only. Keep it authentic, concise, outcome-focused, and aligned to the audience and goal. " +
+            "Make the closing CTA consistent with the brief."
+        }
+      ]
+    });
+  } catch (error) {
+    throw normalizeGroqError(error, "Writer Agent failed to generate the draft.");
+  }
+
+  const post = getGroqText(completion);
 
   return {
     topic: brief.topic,
@@ -190,24 +309,73 @@ export const refineLinkedInPost = async (postContent, style = "shorter and punch
     throw new Error("postContent is required for refinement");
   }
 
-  const completion = await groq.chat.completions.create({
-    model: env.groqModel,
-    temperature: 0.6,
-    max_tokens: 700,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a world-class editor for LinkedIn. Preserve the original meaning but improve clarity and engagement."
-      },
-      {
-        role: "user",
-        content: `Rewrite the following LinkedIn post to be ${style}.\n\nPost:\n${postContent}`
-      }
-    ]
-  });
+  try {
+    const completion = await groq.chat.completions.create({
+      model: env.groqModel,
+      temperature: 0.6,
+      max_tokens: 700,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a world-class editor for LinkedIn. Preserve the original meaning but improve clarity and engagement."
+        },
+        {
+          role: "user",
+          content: `Rewrite the following LinkedIn post to be ${style}.\n\nPost:\n${postContent}`
+        }
+      ]
+    });
 
-  return completion.choices?.[0]?.message?.content?.trim() || "";
+    return getGroqText(completion);
+  } catch (error) {
+    throw normalizeGroqError(error, "Groq failed to refine the LinkedIn post.");
+  }
+};
+
+export const analyzePostContent = async (postContent) => {
+  if (!postContent?.trim()) {
+    throw new Error("postContent is required");
+  }
+
+  const fallback = buildAnalysisFallback(postContent);
+
+  try {
+    const completion = await groq.chat.completions.create({
+      model: env.groqModel,
+      temperature: 0.2,
+      max_tokens: 250,
+      messages: [
+        {
+          role: "system",
+          content: CRITIC_AGENT_PERSONA
+        },
+        {
+          role: "user",
+          content:
+            'Analyze the following LinkedIn post and return strict JSON only with this schema: {"hookScore": number, "readabilityScore": number, "viralityScore": number, "suggestions": string[]}. ' +
+            "Scores must be integers from 1 to 10. Provide exactly 2 concise suggestions.\n\n" +
+            `Post:\n${postContent}`
+        }
+      ]
+    });
+
+    const rawOutput = getGroqText(completion);
+    const jsonCandidate = extractJsonObject(rawOutput);
+
+    if (!jsonCandidate) {
+      return buildAnalysisFallback(postContent, rawOutput);
+    }
+
+    const parsed = JSON.parse(jsonCandidate);
+    return normalizeAnalysisPayload(parsed, fallback);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return buildAnalysisFallback(postContent);
+    }
+
+    throw normalizeGroqError(error, "Critic Agent failed to analyze the draft.");
+  }
 };
 
 export const generateImagePrompt = async (postContent) => {
@@ -215,27 +383,31 @@ export const generateImagePrompt = async (postContent) => {
     throw new Error("postContent is required");
   }
 
-  const completion = await groq.chat.completions.create({
-    model: env.groqModel,
-    temperature: 0.5,
-    max_tokens: 300,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You convert business writing into premium Stable Diffusion prompts. Output one prompt only."
-      },
-      {
-        role: "user",
-        content:
-          `Transform this LinkedIn post into a single photorealistic, professional, high-contrast digital art prompt. ` +
-          `The image should feel corporate, modern, and editorial-quality, with cinematic lighting and a clean composition. ` +
-          `Avoid text overlays, logos, and watermarks.\n\nPost:\n${postContent}`
-      }
-    ]
-  });
+  try {
+    const completion = await groq.chat.completions.create({
+      model: env.groqModel,
+      temperature: 0.5,
+      max_tokens: 300,
+      messages: [
+        {
+          role: "system",
+          content: VISUAL_ARTIST_AGENT_PERSONA
+        },
+        {
+          role: "user",
+          content:
+            "Transform this LinkedIn post into one image-generation prompt only. " +
+            "The visual should feel professional, editorial, modern, and suitable for a polished social asset. " +
+            "Avoid text overlays, logos, watermarks, and multiple prompt variants.\n\n" +
+            `Post:\n${postContent}`
+        }
+      ]
+    });
 
-  return completion.choices?.[0]?.message?.content?.trim() || "";
+    return getGroqText(completion).replace(/^["'`]|["'`]$/g, "");
+  } catch (error) {
+    throw normalizeGroqError(error, "Visual Artist Agent failed to create the image prompt.");
+  }
 };
 
 export const generateSDImage = async (imagePrompt) => {
@@ -302,6 +474,7 @@ export const saveImageHistory = async ({
   brief,
   topic,
   postContent,
+  analysis,
   imagePrompt,
   imageUrl,
   imageBase64
@@ -311,6 +484,7 @@ export const saveImageHistory = async ({
     brief: normalizedBrief,
     topic: normalizedBrief.topic || topic || "",
     postContent: postContent || "",
+    analysis: analysis && typeof analysis === "object" ? analysis : undefined,
     imagePrompt: imagePrompt || "",
     imageUrl: imageUrl || "",
     imageBase64: imageBase64 || "",
@@ -319,7 +493,7 @@ export const saveImageHistory = async ({
 
   const result = await getImageHistoryCollection().insertOne(doc);
 
-  return { ...doc, _id: result.insertedId };
+  return normalizeMongoId({ ...doc, _id: result.insertedId });
 };
 
 export const getImageHistory = async (limit = 20) => {
@@ -329,5 +503,5 @@ export const getImageHistory = async (limit = 20) => {
     .limit(limit)
     .toArray();
 
-  return docs.map((doc) => ({ ...doc, _id: new ObjectId(doc._id).toString() }));
+  return docs.map(normalizeMongoId);
 };

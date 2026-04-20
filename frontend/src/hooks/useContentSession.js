@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  analyzeContent,
   fetchImageHistory,
   generateImage,
   generateImagePrompt,
-  generatePost,
-  refinePost
+  orchestrateContent,
+  refinePost,
+  schedulePost
 } from "../api";
 
-const SESSION_STORAGE_KEY = "contentc.studio.session.v1";
+const SESSION_STORAGE_KEYS = [
+  "contentc.studio.session.v2",
+  "contentc.studio.session.v1"
+];
+const SESSION_STORAGE_KEY = SESSION_STORAGE_KEYS[0];
 const MAX_DRAFT_VERSIONS = 12;
 
 export const steps = [
@@ -124,8 +130,15 @@ const readPersistedSession = () => {
   }
 
   try {
-    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    for (const key of SESSION_STORAGE_KEYS) {
+      const raw = window.localStorage.getItem(key);
+
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    }
+
+    return null;
   } catch (error) {
     console.error("Failed to read persisted session", error);
     return null;
@@ -134,6 +147,16 @@ const readPersistedSession = () => {
 
 const getPersistedBrief = () => readPersistedSession()?.brief || createInitialBrief();
 const getPersistedValue = (key, fallback) => readPersistedSession()?.[key] ?? fallback;
+
+const runAgentStatusSequence = (setAgentStatus) => [
+  window.setTimeout(() => setAgentStatus("Critic reviewing..."), 900),
+  window.setTimeout(() => setAgentStatus("Artist designing..."), 1800)
+];
+
+const buildScheduleNotice = (scheduledDate) =>
+  scheduledDate
+    ? `Post scheduled for ${new Date(scheduledDate).toLocaleString()}.`
+    : "Post scheduled successfully.";
 
 export const useContentSession = () => {
   const [brief, setBrief] = useState(getPersistedBrief);
@@ -146,11 +169,15 @@ export const useContentSession = () => {
   const [contextTemplates, setContextTemplates] = useState(() =>
     getPersistedValue("contextTemplates", [])
   );
+  const [analysis, setAnalysis] = useState(() => getPersistedValue("analysis", null));
   const [imagePrompt, setImagePromptState] = useState(() =>
     getPersistedValue("imagePrompt", "")
   );
   const [imagePreview, setImagePreview] = useState(() =>
     getPersistedValue("imagePreview", "")
+  );
+  const [agentStatus, setAgentStatus] = useState(() =>
+    getPersistedValue("agentStatus", "Idle")
   );
   const [history, setHistory] = useState([]);
   const [draftVersions, setDraftVersions] = useState(() =>
@@ -159,11 +186,19 @@ export const useContentSession = () => {
   const [latestRefinement, setLatestRefinement] = useState(() =>
     getPersistedValue("latestRefinement", null)
   );
+  const [scheduledPost, setScheduledPost] = useState(() =>
+    getPersistedValue("scheduledPost", null)
+  );
+  const [scheduleNotice, setScheduleNotice] = useState(() =>
+    getPersistedValue("scheduleNotice", "")
+  );
   const [loading, setLoading] = useState({
+    analyze: false,
     text: false,
     refine: false,
     imagePrompt: false,
     image: false,
+    schedule: false,
     history: false
   });
   const [error, setError] = useState("");
@@ -188,7 +223,8 @@ export const useContentSession = () => {
       brief: brief.topic.trim() ? "ready" : "working",
       draft: postContent.trim() ? "ready" : "waiting",
       refine: latestRefinement?.after ? "working" : postContent.trim() ? "ready" : "waiting",
-      visual: imagePrompt.trim() || imagePreview ? "ready" : postContent.trim() ? "working" : "waiting"
+      visual:
+        imagePrompt.trim() || imagePreview ? "ready" : postContent.trim() ? "working" : "waiting"
     }),
     [brief.topic, imagePreview, imagePrompt, latestRefinement, postContent]
   );
@@ -221,6 +257,10 @@ export const useContentSession = () => {
   };
 
   const setPostContent = (value) => {
+    if (value !== postContent) {
+      setAnalysis(null);
+    }
+
     setPostContentState(value);
   };
 
@@ -251,6 +291,8 @@ export const useContentSession = () => {
     }
 
     const session = {
+      agentStatus,
+      analysis,
       brief,
       contextTemplates,
       draftVersions,
@@ -258,11 +300,15 @@ export const useContentSession = () => {
       imagePrompt,
       latestRefinement,
       postContent,
+      scheduleNotice,
+      scheduledPost,
       selectedRefinementStyle
     };
 
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
   }, [
+    agentStatus,
+    analysis,
     brief,
     contextTemplates,
     draftVersions,
@@ -270,19 +316,28 @@ export const useContentSession = () => {
     imagePrompt,
     latestRefinement,
     postContent,
+    scheduleNotice,
+    scheduledPost,
     selectedRefinementStyle
   ]);
 
   const handleGeneratePost = async () => {
     setError("");
+    setScheduleNotice("");
     setLoadingState("text", true);
+    setAgentStatus("Writer drafting...");
+
+    const statusTimers =
+      typeof window === "undefined" ? [] : runAgentStatusSequence(setAgentStatus);
 
     try {
-      const response = await generatePost(brief);
+      const response = await orchestrateContent(brief);
       const nextPost = response.post || "";
 
       setPostContentState(nextPost);
+      setAnalysis(response.analysis || null);
       setContextTemplates(response.contextTemplates || []);
+      setImagePromptState(response.imagePrompt || "");
       setLatestRefinement(null);
       pushDraftVersion({
         content: nextPost,
@@ -292,6 +347,8 @@ export const useContentSession = () => {
     } catch (err) {
       setError(err.message);
     } finally {
+      statusTimers.forEach((timer) => window.clearTimeout(timer));
+      setAgentStatus("Idle");
       setLoadingState("text", false);
     }
   };
@@ -321,6 +378,7 @@ export const useContentSession = () => {
     }
 
     setPostContentState(latestRefinement.after);
+    setAnalysis(null);
     pushDraftVersion({
       content: latestRefinement.after,
       reason: "refine-accepted",
@@ -378,6 +436,7 @@ export const useContentSession = () => {
       const imageResponse = await generateImage({
         brief,
         postContent,
+        analysis,
         imagePrompt
       });
 
@@ -390,6 +449,57 @@ export const useContentSession = () => {
     }
   };
 
+  const handleSchedule = async () => {
+    if (!postContent.trim()) {
+      return;
+    }
+
+    setError("");
+    setScheduleNotice("");
+    setLoadingState("schedule", true);
+
+    try {
+      const response = await schedulePost({
+        postContent,
+        imageUrl: imagePreview || undefined,
+        brief,
+        analysis
+      });
+
+      setScheduledPost(response.scheduledPost || null);
+      setScheduleNotice(buildScheduleNotice(response.scheduledPost?.scheduledDate));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingState("schedule", false);
+    }
+  };
+
+  const handleAnalyzePost = async (contentOverride) => {
+    const content = (contentOverride ?? postContent).trim();
+
+    if (!content) {
+      setAnalysis(null);
+      return null;
+    }
+
+    setError("");
+    setAgentStatus("Critic reviewing...");
+    setLoadingState("analyze", true);
+
+    try {
+      const response = await analyzeContent(content);
+      setAnalysis(response.analysis || null);
+      return response.analysis || null;
+    } catch (err) {
+      setError(err.message);
+      return null;
+    } finally {
+      setLoadingState("analyze", false);
+      setAgentStatus("Idle");
+    }
+  };
+
   const reuseHistoryItem = (item, mode = "full") => {
     const nextBrief = item.brief || {
       topic: item.topic || "",
@@ -399,11 +509,14 @@ export const useContentSession = () => {
     };
 
     setBrief(nextBrief);
+    setScheduledPost(null);
+    setScheduleNotice("");
 
     if (mode === "full") {
       setPostContentState(item.postContent || "");
       setImagePromptState(item.imagePrompt || "");
       setImagePreview(item.imageUrl || item.imageBase64 || "");
+      setAnalysis(item.analysis || null);
       setLatestRefinement(null);
       pushDraftVersion({
         content: item.postContent || "",
@@ -428,6 +541,8 @@ export const useContentSession = () => {
 
   return {
     acceptRefinement,
+    agentStatus,
+    analysis,
     brief,
     canGenerateImage,
     canGeneratePost,
@@ -442,6 +557,8 @@ export const useContentSession = () => {
     loading,
     postContent,
     postMetrics,
+    scheduleNotice,
+    scheduledPost,
     restoreDraftVersion,
     reuseHistoryItem,
     saveCurrentDraftVersion,
@@ -449,8 +566,10 @@ export const useContentSession = () => {
     workflowStatus,
     handleGenerateImage,
     handleGenerateImagePrompt,
+    handleAnalyzePost,
     handleGeneratePost,
     handleRefine,
+    handleSchedule,
     loadHistory,
     setImagePrompt,
     setPostContent,

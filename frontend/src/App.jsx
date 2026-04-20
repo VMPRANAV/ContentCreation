@@ -23,6 +23,8 @@ const buttonClass =
 function App() {
   const {
     acceptRefinement,
+    agentStatus,
+    analysis,
     brief,
     canGenerateImage,
     canGeneratePost,
@@ -37,6 +39,8 @@ function App() {
     loading,
     postContent,
     postMetrics,
+    scheduleNotice,
+    scheduledPost,
     restoreDraftVersion,
     reuseHistoryItem,
     saveCurrentDraftVersion,
@@ -44,7 +48,9 @@ function App() {
     workflowStatus,
     handleGenerateImage,
     handleGenerateImagePrompt,
+    handleAnalyzePost,
     handleGeneratePost,
+    handleSchedule,
     handleRefine,
     loadHistory,
     setImagePrompt,
@@ -110,6 +116,10 @@ function App() {
           className="grid gap-5 border-t border-white/10 py-16 lg:grid-cols-[280px_minmax(0,1fr)]"
         >
           <StudioSidebar
+            agentStatus={agentStatus}
+            analysis={analysis}
+            loading={loading}
+            onAnalyzePost={handleAnalyzePost}
             postMetrics={postMetrics}
             steps={steps}
             statusToneMap={statusToneMap}
@@ -118,6 +128,7 @@ function App() {
 
           <div className="grid gap-5">
             <BriefSection
+              agentStatus={agentStatus}
               brief={brief}
               buttonClass={buttonClass}
               canGeneratePost={canGeneratePost}
@@ -134,9 +145,12 @@ function App() {
               loading={loading}
               onGeneratePost={handleGeneratePost}
               onRestoreDraftVersion={restoreDraftVersion}
+              onSchedule={handleSchedule}
               onSaveCurrentDraftVersion={saveCurrentDraftVersion}
               onSetPostContent={setPostContent}
               postContent={postContent}
+              scheduleNotice={scheduleNotice}
+              scheduledPost={scheduledPost}
             />
 
             <RefineSection

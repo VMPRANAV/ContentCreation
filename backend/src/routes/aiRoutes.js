@@ -1,5 +1,7 @@
 import { Router } from "express";
+import { orchestrateWorkflow } from "../agents/orchestrator.js";
 import {
+  analyzePostContent,
   generateImagePrompt,
   generateSDImage,
   generateTextWithRAG,
@@ -8,6 +10,7 @@ import {
   saveImageHistory
 } from "../services/aiService.js";
 import { persistGeneratedImage } from "../services/mediaStorage.js";
+import { schedulePost } from "../services/schedulerService.js";
 
 const router = Router();
 
@@ -39,6 +42,23 @@ router.post("/generate", async (req, res, next) => {
   }
 });
 
+router.post("/orchestrate", async (req, res, next) => {
+  try {
+    const brief = normalizeFrontendBrief(req.body);
+
+    if (!brief.topic) {
+      return res.status(400).json({
+        error: "brief.topic is required and must be a non-empty string."
+      });
+    }
+
+    const output = await orchestrateWorkflow(brief);
+    res.json(output);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/refine", async (req, res, next) => {
   try {
     const { postContent, style } = req.body;
@@ -50,6 +70,23 @@ router.post("/refine", async (req, res, next) => {
 
     const refinedPost = await refineLinkedInPost(postContent, style);
     res.json({ refinedPost });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/analyze", async (req, res, next) => {
+  try {
+    const { postContent } = req.body;
+
+    if (!postContent?.trim()) {
+      return res.status(400).json({
+        error: "postContent is required and must be a non-empty string."
+      });
+    }
+
+    const analysis = await analyzePostContent(postContent);
+    res.json({ analysis });
   } catch (error) {
     next(error);
   }
@@ -67,7 +104,7 @@ router.post("/image-prompt", async (req, res, next) => {
 
 router.post("/image", async (req, res, next) => {
   try {
-    const { topic, audience, goal, cta, brief, postContent, imagePrompt } = req.body;
+    const { topic, audience, goal, cta, brief, postContent, analysis, imagePrompt } = req.body;
     const normalizedBrief = brief || {
       topic,
       audience,
@@ -86,6 +123,7 @@ router.post("/image", async (req, res, next) => {
       brief: normalizedBrief,
       topic: normalizedBrief.topic || topic,
       postContent,
+      analysis,
       imagePrompt,
       imageUrl: persistedImage.imageUrl,
       imageBase64: persistedImage.imageBase64
@@ -107,6 +145,15 @@ router.get("/image-history", async (req, res, next) => {
     const limit = Number(req.query.limit || 20);
     const history = await getImageHistory(limit);
     res.json({ history });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/schedule", async (req, res, next) => {
+  try {
+    const scheduledPost = await schedulePost(req.body);
+    res.status(201).json({ scheduledPost });
   } catch (error) {
     next(error);
   }

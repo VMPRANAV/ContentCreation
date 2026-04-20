@@ -1,4 +1,4 @@
-import { BookmarkPlus, RefreshCw, Sparkles } from "lucide-react";
+import { BookmarkPlus, CalendarPlus, RefreshCw, Sparkles } from "lucide-react";
 import Card from "../Card";
 
 const DraftSection = ({
@@ -9,9 +9,12 @@ const DraftSection = ({
   loading,
   onGeneratePost,
   onRestoreDraftVersion,
+  onSchedule,
   onSaveCurrentDraftVersion,
   onSetPostContent,
-  postContent
+  postContent,
+  scheduleNotice,
+  scheduledPost
 }) => {
   return (
     <Card
@@ -54,7 +57,26 @@ const DraftSection = ({
             <BookmarkPlus size={16} />
             Save Snapshot
           </button>
+          <button
+            className={`${buttonClass} bg-accent/18 hover:bg-accent/28`}
+            onClick={onSchedule}
+            disabled={!postContent.trim() || loading.schedule}
+          >
+            <CalendarPlus size={16} />
+            {loading.schedule ? "Scheduling..." : "Schedule Post"}
+          </button>
         </div>
+
+        {scheduleNotice ? (
+          <div className="rounded-2xl border border-emerald-300/25 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+            <p>{scheduleNotice}</p>
+            {scheduledPost?.status ? (
+              <p className="mt-2 text-xs uppercase tracking-[0.18em] text-emerald-200/80">
+                Status: {scheduledPost.status}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="grid gap-3 xl:grid-cols-3">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-4">

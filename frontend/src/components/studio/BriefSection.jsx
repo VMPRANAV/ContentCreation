@@ -2,6 +2,7 @@ import { Bot, Sparkles } from "lucide-react";
 import Card from "../Card";
 
 const BriefSection = ({
+  agentStatus,
   brief,
   buttonClass,
   canGeneratePost,
@@ -81,6 +82,11 @@ const BriefSection = ({
           <a href="#draft" className={`${buttonClass} bg-white/8 hover:bg-white/14`}>
             Jump To Draft
           </a>
+        </div>
+
+        <div className="md:col-span-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Agent Status</p>
+          <p className="mt-2 text-sm font-medium text-slate-200">{agentStatus || "Idle"}</p>
         </div>
       </div>
     </Card>
