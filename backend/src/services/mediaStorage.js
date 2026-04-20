@@ -1,27 +1,16 @@
-import { v2 as cloudinary } from "cloudinary";
 import { env } from "../config/env.js";
-
-const canUseCloudinary = () =>
-  Boolean(env.cloudinaryCloudName && env.cloudinaryApiKey && env.cloudinaryApiSecret);
-
-if (canUseCloudinary()) {
-  cloudinary.config({
-    cloud_name: env.cloudinaryCloudName,
-    api_key: env.cloudinaryApiKey,
-    api_secret: env.cloudinaryApiSecret,
-    secure: true
-  });
-}
+import {
+  canUseCloudinary,
+  uploadBufferToCloudinary
+} from "../config/cloudinary.js";
 
 export const persistGeneratedImage = async ({ imageBuffer, mimeType, topic }) => {
   if (canUseCloudinary()) {
-    const base64 = imageBuffer.toString("base64");
-    const dataUri = `data:${mimeType};base64,${base64}`;
-
-    const upload = await cloudinary.uploader.upload(dataUri, {
+    const upload = await uploadBufferToCloudinary({
+      buffer: imageBuffer,
+      mimeType,
       folder: env.cloudinaryFolder,
-      resource_type: "image",
-      public_id: `linkedin-${Date.now()}`,
+      publicId: `linkedin-${Date.now()}`,
       tags: ["linkedin", "ai-generated", topic || "untitled"]
     });
 

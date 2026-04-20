@@ -20,6 +20,10 @@ export const env = {
   geminiApiKey: process.env.EMBEDDING_KEY || "",
   geminiEmbeddingModel: "gemini-embedding-001",
   stabilityApiKey: process.env.STABILITY_API_KEY || "",
+  cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
+  cloudinaryApiKey: process.env.CLOUDINARY_API_KEY || "",
+  cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET || "",
+  cloudinaryFolder: process.env.CLOUDINARY_FOLDER || "contentc",
   stabilityApiBaseUrl:
     "https://api.stability.ai/v2beta/stable-image/generate/sd3"
 };

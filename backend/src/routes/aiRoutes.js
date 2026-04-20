@@ -11,17 +11,28 @@ import { persistGeneratedImage } from "../services/mediaStorage.js";
 
 const router = Router();
 
+const normalizeFrontendBrief = (body = {}) => {
+  const source = body.brief && typeof body.brief === "object" ? body.brief : body;
+
+  return {
+    topic: typeof source.topic === "string" ? source.topic.trim() : "",
+    audience: typeof source.audience === "string" ? source.audience.trim() : "",
+    goal: typeof source.goal === "string" ? source.goal.trim() : "",
+    cta: typeof source.cta === "string" ? source.cta.trim() : ""
+  };
+};
+
 router.post("/generate", async (req, res, next) => {
   try {
-    const { topic, audience, goal, cta, brief } = req.body;
-    const output = await generateTextWithRAG(
-      brief || {
-        topic,
-        audience,
-        goal,
-        cta
-      }
-    );
+    const brief = normalizeFrontendBrief(req.body);
+
+    if (!brief.topic) {
+      return res.status(400).json({
+        error: "brief.topic is required and must be a non-empty string."
+      });
+    }
+
+    const output = await generateTextWithRAG(brief);
     res.json(output);
   } catch (error) {
     next(error);
