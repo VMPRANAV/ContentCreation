@@ -1,0 +1,199 @@
+{
+  "info": {
+    "name": "LinkedIn Content Engine Backend",
+    "_postman_id": "42d7d95a-2d93-4f06-b072-a9fa5de4d4f7",
+    "description": "Postman collection for testing the LinkedIn Content Engine backend APIs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "topic",
+      "value": "How small teams can use AI to speed up content creation without losing their voice"
+    },
+    {
+      "key": "postContent",
+      "value": "AI is not replacing thoughtful content teams. It is removing the repetitive steps that slow them down. The teams that win will use AI for research, drafts, and repurposing while keeping strategy, taste, and final editing human."
+    },
+    {
+      "key": "style",
+      "value": "shorter and punchier"
+    },
+    {
+      "key": "audience",
+      "value": "B2B marketing leaders and startup founders"
+    },
+    {
+      "key": "goal",
+      "value": "Show how AI can speed up content creation without losing strategic quality"
+    },
+    {
+      "key": "cta",
+      "value": "Ask readers how they balance speed and voice in their team"
+    },
+    {
+      "key": "imagePrompt",
+      "value": "A modern editorial-style workspace with a strategist reviewing AI-assisted content on a laptop, professional lighting, corporate aesthetic, clean composition, photorealistic"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "health"
+          ]
+        },
+        "description": "Confirms that the backend is reachable."
+      }
+    },
+    {
+      "name": "Generate LinkedIn Post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"brief\": {\n    \"topic\": \"{{topic}}\",\n    \"audience\": \"{{audience}}\",\n    \"goal\": \"{{goal}}\",\n    \"cta\": \"{{cta}}\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/ai/generate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "ai",
+            "generate"
+          ]
+        },
+        "description": "Generates a LinkedIn post using RAG over the post_templates collection."
+      }
+    },
+    {
+      "name": "Refine LinkedIn Post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"postContent\": \"{{postContent}}\",\n  \"style\": \"{{style}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/ai/refine",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "ai",
+            "refine"
+          ]
+        },
+        "description": "Rewrites a LinkedIn post in the requested style."
+      }
+    },
+    {
+      "name": "Generate Image Prompt",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"postContent\": \"{{postContent}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/ai/image-prompt",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "ai",
+            "image-prompt"
+          ]
+        },
+        "description": "Converts a LinkedIn post into an image-generation prompt."
+      }
+    },
+    {
+      "name": "Generate Image",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"brief\": {\n    \"topic\": \"{{topic}}\",\n    \"audience\": \"{{audience}}\",\n    \"goal\": \"{{goal}}\",\n    \"cta\": \"{{cta}}\"\n  },\n  \"postContent\": \"{{postContent}}\",\n  \"imagePrompt\": \"{{imagePrompt}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/ai/image",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "ai",
+            "image"
+          ]
+        },
+        "description": "Generates an image from a prompt and stores the result in image_history."
+      }
+    },
+    {
+      "name": "Get Image History",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/ai/image-history?limit=10",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "ai",
+            "image-history"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            }
+          ]
+        },
+        "description": "Returns recent generated-image records from MongoDB."
+      }
+    }
+  ]
+}

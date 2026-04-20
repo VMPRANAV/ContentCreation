@@ -1,0 +1,74 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  color: #e6eef8;
+  background-color: #070d19;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Manrope", sans-serif;
+  background:
+    radial-gradient(1200px 600px at 5% -10%, rgba(82, 199, 184, 0.22), transparent 60%),
+    radial-gradient(800px 500px at 90% 0%, rgba(255, 143, 111, 0.2), transparent 65%),
+    linear-gradient(180deg, #09111f 0%, #070d19 100%);
+  color: #e6eef8;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.font-display {
+  font-family: "Space Grotesk", sans-serif;
+  letter-spacing: -0.01em;
+}
+
+textarea,
+input,
+button {
+  font: inherit;
+}
+
+button {
+  transition: transform 150ms var(--ease-out), opacity 200ms var(--ease-out),
+    box-shadow 220ms var(--ease-out), background-color 220ms var(--ease-out);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+input,
+textarea {
+  transition: border-color 180ms var(--ease-out), box-shadow 220ms var(--ease-out),
+    background-color 220ms var(--ease-out);
+}
+
+.grid-stagger > * {
+  animation: rise-in 500ms var(--ease-out) both;
+}
+
+.grid-stagger > *:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.grid-stagger > *:nth-child(3) {
+  animation-delay: 130ms;
+}
+
+#root {
+  min-height: 100vh;
+}
