@@ -23,7 +23,16 @@ app.use((error, _req, res, _next) => {
     });
   }
 
-  console.error(error);
+  if (error.status && error.status < 500) {
+    console.warn(`[server] ${error.status} ${error.message}`);
+  } else {
+    console.error(error);
+  }
+
+  if (error.retryAfterSeconds) {
+    res.set("Retry-After", String(error.retryAfterSeconds));
+  }
+
   res.status(error.status || 500).json({
     error: error.message || "Internal Server Error"
   });

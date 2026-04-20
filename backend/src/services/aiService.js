@@ -1,11 +1,13 @@
 import Groq from "groq-sdk";
 import { GoogleGenAI } from "@google/genai";
+import { InferenceClient } from "@huggingface/inference";
 import { ObjectId } from "mongodb";
 import { env } from "../config/env.js";
 import { getDb } from "../db/mongo.js";
 
 const groq = new Groq({ apiKey: env.groqApiKey });
 const gemini = new GoogleGenAI({ apiKey: env.geminiApiKey });
+const hf = new InferenceClient(env.hfApiKey);
 
 const getPostTemplatesCollection = () => getDb().collection("post_templates");
 const getImageHistoryCollection = () => getDb().collection("image_history");
@@ -49,6 +51,46 @@ const buildBriefInstructionBlock = (briefInput) => {
   ];
 
   return lines.join("\n");
+};
+
+const extractRetryDelaySeconds = (details = []) => {
+  const retryInfo = details.find((detail) => detail?.["@type"]?.includes("RetryInfo"));
+  const retryDelay = retryInfo?.retryDelay;
+
+  if (typeof retryDelay !== "string") {
+    return null;
+  }
+
+  const seconds = Number.parseInt(retryDelay, 10);
+  return Number.isFinite(seconds) ? seconds : null;
+};
+
+const normalizeGeminiError = (error, fallbackMessage) => {
+  const rawMessage = error?.message || fallbackMessage;
+  const match = rawMessage.match(/\{.*\}$/s);
+
+  if (!match) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(match[0]);
+    const payload = parsed?.error;
+
+    if (!payload) {
+      return null;
+    }
+
+    const normalized = new Error(payload.message || fallbackMessage);
+    normalized.status = payload.code || 500;
+    normalized.provider = "gemini";
+    normalized.details = payload.details || [];
+    normalized.retryAfterSeconds = extractRetryDelaySeconds(payload.details || []);
+
+    return normalized;
+  } catch {
+    return null;
+  }
 };
 
 const embedText = async (input) => {
@@ -196,59 +238,63 @@ export const generateImagePrompt = async (postContent) => {
   return completion.choices?.[0]?.message?.content?.trim() || "";
 };
 
-const parseImageResponse = async (response) => {
-  const contentType = response.headers.get("content-type") || "";
-
-  if (contentType.includes("application/json")) {
-    const payload = await response.json();
-
-    if (!response.ok) {
-      const message = payload?.message || payload?.error || "Stability API returned an error";
-      throw new Error(message);
-    }
-
-    if (payload?.image) {
-      return Buffer.from(payload.image, "base64");
-    }
-
-    throw new Error("Stability API did not return image data");
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  if (!response.ok) {
-    throw new Error(`Stability API request failed with status ${response.status}`);
-  }
-
-  return Buffer.from(arrayBuffer);
-};
-
 export const generateSDImage = async (imagePrompt) => {
   if (!imagePrompt?.trim()) {
     throw new Error("imagePrompt is required");
   }
 
-  const body = new FormData();
-  body.append("prompt", imagePrompt);
-  body.append("mode", "text-to-image");
-  body.append("model", "sd3.5-large");
-  body.append("output_format", "png");
+  let imageBlob;
 
-  const response = await fetch(env.stabilityApiBaseUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.stabilityApiKey}`,
-      Accept: "image/*"
-    },
-    body
-  });
+  try {
+    imageBlob = await hf.textToImage({
+      model: env.hfImageModel,
+      provider: env.hfProvider,
+      inputs: imagePrompt.trim()
+    });
+  } catch (error) {
+    const status = error?.status || error?.statusCode || error?.response?.status;
+    const retryAfter =
+      Number.parseInt(error?.response?.headers?.get?.("retry-after"), 10) || null;
 
-  const imageBuffer = await parseImageResponse(response);
+    if (status === 429) {
+      const friendlyMessage =
+        "Hugging Face image generation is currently unavailable because the configured token or provider has hit a rate limit or quota.";
+
+      const enrichedError = new Error(
+        retryAfter
+          ? `${friendlyMessage} Retry after about ${retryAfter} seconds, or check your Hugging Face billing and provider quota.`
+          : `${friendlyMessage} Check your Hugging Face billing and provider quota.`
+      );
+
+      enrichedError.status = 429;
+      enrichedError.provider = "huggingface";
+      enrichedError.retryAfterSeconds = retryAfter;
+      throw enrichedError;
+    }
+
+    const fallbackMessage =
+      error?.message || "Hugging Face image generation failed.";
+    const enrichedError = new Error(fallbackMessage);
+    enrichedError.status = status || 500;
+    enrichedError.provider = "huggingface";
+    throw enrichedError;
+  }
+
+  const imageBuffer = Buffer.from(await imageBlob.arrayBuffer());
+
+  if (!imageBuffer.length) {
+    throw new Error(
+      "Hugging Face did not return an image. Try a more explicit image prompt."
+    );
+  }
+
+  const mimeType = imageBlob.type || "image/png";
   const base64 = imageBuffer.toString("base64");
 
   return {
-    mimeType: "image/png",
+    mimeType,
     imageBuffer,
-    imageBase64: `data:image/png;base64,${base64}`
+    imageBase64: `data:${mimeType};base64,${base64}`
   };
 };
 

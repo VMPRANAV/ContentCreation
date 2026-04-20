@@ -19,13 +19,14 @@ export const env = {
   groqModel: "llama-3.3-70b-versatile",
   geminiApiKey: process.env.EMBEDDING_KEY || "",
   geminiEmbeddingModel: "gemini-embedding-001",
-  stabilityApiKey: process.env.STABILITY_API_KEY || "",
+  hfApiKey: process.env.HF_API_KEY || "",
+  hfImageModel: process.env.HF_IMAGE_MODEL || "black-forest-labs/FLUX.1-dev",
+  hfProvider: process.env.HF_PROVIDER || "fal-ai",
+
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY || "",
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET || "",
   cloudinaryFolder: process.env.CLOUDINARY_FOLDER || "contentc",
-  stabilityApiBaseUrl:
-    "https://api.stability.ai/v2beta/stable-image/generate/sd3"
 };
 
 export const validateEnv = () => {
@@ -33,7 +34,7 @@ export const validateEnv = () => {
     "MONGODB_URI",
     "GROQ_API_KEY",
     "EMBEDDING_KEY",
-    "STABILITY_API_KEY"
+    "HF_API_KEY"
   ];
   const missing = required.filter((key) => !process.env[key]);
 
