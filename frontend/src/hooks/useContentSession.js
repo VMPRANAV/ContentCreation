@@ -414,6 +414,10 @@ export const useContentSession = () => {
     });
   };
 
+  const removeDraftVersion = (versionId) => {
+    setDraftVersions((prev) => prev.filter((item) => item.id !== versionId));
+  };
+
   const handleGenerateImagePrompt = async () => {
     setError("");
     setLoadingState("imagePrompt", true);
@@ -560,6 +564,7 @@ export const useContentSession = () => {
     scheduleNotice,
     scheduledPost,
     restoreDraftVersion,
+    removeDraftVersion,
     reuseHistoryItem,
     saveCurrentDraftVersion,
     selectedRefinementStyle,

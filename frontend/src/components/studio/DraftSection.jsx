@@ -8,6 +8,7 @@ const DraftSection = ({
   draftVersions,
   loading,
   onGeneratePost,
+  onRemoveDraftVersion,
   onRestoreDraftVersion,
   onSchedule,
   onSaveCurrentDraftVersion,
@@ -148,6 +149,13 @@ const DraftSection = ({
                         className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10"
                       >
                         Restore
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRemoveDraftVersion(version.id)}
+                        className="rounded-full border border-red-300/25 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-100 transition-colors hover:bg-red-500/15"
+                      >
+                        Remove
                       </button>
                     </div>
                     <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-300/80">

@@ -41,6 +41,7 @@ function App() {
     postMetrics,
     scheduleNotice,
     scheduledPost,
+    removeDraftVersion,
     restoreDraftVersion,
     reuseHistoryItem,
     saveCurrentDraftVersion,
@@ -144,6 +145,7 @@ function App() {
               draftVersions={draftVersions}
               loading={loading}
               onGeneratePost={handleGeneratePost}
+              onRemoveDraftVersion={removeDraftVersion}
               onRestoreDraftVersion={restoreDraftVersion}
               onSchedule={handleSchedule}
               onSaveCurrentDraftVersion={saveCurrentDraftVersion}
